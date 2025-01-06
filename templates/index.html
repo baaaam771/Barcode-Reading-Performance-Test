@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head> 
+    <meta charset="utf-8"> 
+    <title>Performance Test</title> 
+</head>
+<body>
+    Image folder path: <input type="text" id="folderpath" name="folderpath" value="D:\test\BarcodePerformance\dataset">
+    Existing dataset: 
+    <select onchange="updateFolderPath(this.value)">
+        <option value ="D:\test\BarcodePerformance\dataset">N95</option>
+        <option value ="D:\test\BarcodePerformance\abbyy">ABBYY</option>
+    </select><br/>
+    Name: <input type="text" id="name" name="name" value="Test">
+    <button type="button" onclick='createSession()'>Create Session</button>
+    <label>Recursive:
+    <input type="checkbox" id="recursive" name="recursive" value="Recursive"></label>
+    <p>A new window will open.</p>
+    
+    <div>
+        Previous sessions:
+        <div id="sessions">
+        
+        </div>
+    </div>
+    
+<script>
+
+    loadSessionList();
+    function createSession(){
+        var url = "session/create";
+        var xhr = new XMLHttpRequest();
+        var pay_load = {};
+        pay_load["folderpath"] = document.getElementById("folderpath").value;
+        recursive = document.getElementById("recursive");
+        if (recursive.checked) {
+            pay_load["recursive"]="enabled";
+        }
+        pay_load["name"] = document.getElementById("name").value;
+
+        xhr.open('POST', url);
+        xhr.setRequestHeader('content-type', 'application/json'); 
+
+        xhr.onreadystatechange = function(){
+            if(xhr.readyState === 4){
+                console.log(xhr.status);
+                console.log(xhr.responseText);
+                if (xhr.status==200){
+                    var session_id = JSON.parse(xhr.responseText)["session_id"];
+                    window.open('/session.html?id='+session_id);
+                }
+            }
+        }
+        xhr.send(JSON.stringify(pay_load));
+    }
+    
+    function loadSessionList(){
+        var url = "session/list";
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', url);
+
+        xhr.onreadystatechange = function(){
+            if(xhr.readyState === 4){
+                console.log(xhr.status);
+                console.log(xhr.responseText);
+                var sessions = JSON.parse(xhr.responseText);
+                console.log(sessions);
+                var sessionsContainer = document.getElementById("sessions");
+                var ul = document.createElement("ul");
+                for (let key in sessions) {
+                    var a = document.createElement("a");
+                    a.href = "/session.html?id="+key;
+                    a.target = "_blank";
+                    a.innerText = key + " : " + sessions[key];
+                    var li = document.createElement("li");
+                    li.append(a);
+                    ul.append(li);
+                }
+                sessionsContainer.append(ul);
+            }
+        }
+        xhr.send();
+    }
+    
+    function updateFolderPath(value){
+        document.getElementById("folderpath").value=value;
+    }
+</script>
+
+
+</body>
+</html>

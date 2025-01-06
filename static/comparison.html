@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html>
+<head> 
+    <meta charset="utf-8"> 
+    <title>Performance Test</title> 
+    <style type="text/css">
+        table, th, td {
+          border: 1px solid black;
+          text-align: center;
+          max-width: 200px;
+          overflow: auto;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.1.2/dist/echarts.min.js"></script>
+    
+</head>
+<body>
+    <div id="session">
+        <p>Session: <span id="sessionId"></span></p>
+        <label>Barcodes level:
+        <input type="checkbox" id="barcodes-level" name="barcodes-level" value="barcodes-level"></label>
+        </br>
+        <label>In categories:
+        <input type="checkbox" id="in-categories" name="in-categories" value="in-categories"></label>
+        Separate categories in groups of: <input type="text" id="group-num" name="group-num" value="1">
+        </br>
+        <button type="button" onclick='getDataAndDrawChartAndTable()'>Draw Comparison Chart and Table</button><br/>
+        <button type="button" onclick='getComparisonStatistics()'>Get Comparison Statistics</button><br/>
+        <div id="engines">
+        Engines: 
+        </div>
+        <div id="metrics">
+        Metrics: 
+        </div>
+        <div id="normalize">
+        Normalize: 
+        </div>
+        <div id="overview-table"></div>
+        <div id="charts" style="display:none;"></div>
+
+        <div id="statistics">
+            <a href="#" onclick="download_table_as_csv();" id=
+            "csv" style="display:none;">Download as CSV</a>
+            <div id="filter"></div>
+            <div id="comparisonTable"></div>
+        </div>
+        
+        <div>
+            Display Name Settings for engines:
+            </br>
+            <textarea>dynamsoft,DBR
+accusoft,Commercial SDK A
+scandit,Commercial SDK B
+zxing,Zxing
+zxingcpp,ZxingCPP
+zbar,Zbar
+ean13,EAN13
+opencv1d,OpenCV 1D
+boofcv,BoofCV
+opencv_wechat,OpenCV Wechat</textarea></br>
+            Display Name Settings for categories:
+            </br>
+            <textarea>
+accuracy,Reading Rate
+precision,Precision
+f1score,F1-Score,
+time_elapsed,Time Elapsed
+average_time,Average Time
+            </textarea>
+            </br>
+            <button type="button" onclick='updateDisplayName()'>Update Display Name</button>
+        </div>
+    </div>
+<script>
+    get_session_id();
+    var namesDict = {};
+    var categoryNamesDict = {};
+    updateDisplayName();
+    
+    function inCategories(){
+        return document.getElementById("in-categories").checked;
+    }
+    
+    function loadEngines() {
+        var url = "engines";
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', url);
+
+        xhr.onreadystatechange = function(){
+            if(xhr.readyState === 4){
+                engines = JSON.parse(xhr.responseText)["engines"];
+                var engines_select = document.getElementById("engine");
+                var container = document.getElementById("engines");
+                container.innerHTML="Engines: ";
+                for (var i=0;i<engines.length;i++) {
+                    var engine = engines[i];
+                    var lbl = document.createElement("label");
+                    var chk = document.createElement("input");
+                    chk.type = "checkbox";
+                    chk.checked = true;
+                    chk.value = engine;
+                    lbl.append(chk);
+                    lbl.append(getDisplayName(engine));
+                    container.append(lbl);
+                }
+            }
+        }
+        xhr.send();
+    }
+    
+    function loadCategories(){
+        var containers = ["metrics","normalize"];
+        for (var i=0;i<containers.length;i++) {
+            var name = containers[i];
+            var categories = ["accuracy","precision","f1score","time_elapsed","average_time"];
+            var container = document.getElementById(name);
+            container.innerHTML=name+": ";
+            for (var j=0;j<categories.length;j++) {
+                var category = categories[j];
+                var lbl = document.createElement("label");
+                var chk = document.createElement("input");
+                chk.type = "checkbox";
+                chk.checked = true;
+                chk.value = category;
+                lbl.append(chk);
+                lbl.append(getDisplayNameOfCategory(category));
+                container.append(lbl);
+            }
+        }
+        
+    }
+    
+    function getEnabledEngines() {
+        enabled = getEnabledData("engines");
+        return enabled;
+    }
+    
+    function getEnabledMetrics() {
+        enabled = getEnabledData("metrics");
+        return enabled;
+    }
+    
+    function getEnabledNormalization () {
+        enabled = getEnabledData("normalize");
+        return enabled;
+    }
+    
+    function getEnabledData(elementId){
+        var data=[];
+        var container = document.getElementById(elementId);
+        var chks = container.getElementsByTagName("input");
+        for (var i=0;i<chks.length;i++) {
+            chk = chks[i];
+            if (chk.checked == true) {
+                data.push(chk.value);
+            }
+        }
+        return data;
+    }
+   
+    
+    function getDataAndDrawChartAndTable(){
+        var session_id = document.getElementById("sessionId").innerText;
+        var url = "session/"+session_id+"/comparison/"
+        var pay_load = {"engines":getEnabledEngines()};
+        if (inCategories()){
+            pay_load["in_category"] = true;
+        }
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', url);
+        xhr.onreadystatechange = async function(){
+            if(xhr.readyState === 4){
+                var data = JSON.parse(xhr.responseText);
+                var data_in_categories = {};
+                if (inCategories()){
+                    var chartsContainer = document.getElementById("charts");
+                    chartsContainer.innerHTML = "";
+                    
+                    for (var category in data) {
+                        //var head = document.createElement("h2");
+                        //head.innerText = category;
+                        //chartsContainer.append(head);
+                        var engine_data = get_engines_data(data[category]);
+                        data_in_categories[category]=engine_data;
+                        //drawChart(engine_data,false);
+                    }
+                    normalizeData(data_in_categories);
+                    drawChartInCategories(data_in_categories);
+                } else{
+                    var engine_data = get_engines_data(data);
+                    data_in_categories["Result"] = engine_data;
+                    drawChart(engine_data,true);
+                }
+                console.log(data_in_categories);
+                
+                //var d = {};
+                //d["lots"] = data_in_categories["lots"];
+                //delete data_in_categories["lots"];
+                //data_in_categories = d;
+                
+                
+                createOverviewTable(data_in_categories);
+                
+            }
+        }
+        var json = JSON.stringify(pay_load);
+        xhr.send(json);
+    }
+    
+    //e.g. {"blurred":{"DBR":{"accuracy":0.8}}}
+    function normalizeData(data_in_categories){
+        console.log(data_in_categories);
+        var metrices = getEnabledMetrics();
+        var engines = getEnabledEngines();
+        var normalization = getEnabledNormalization();
+        for (var category in data_in_categories) {
+            console.log(category);
+            for (var i=0;i<metrices.length;i++) {
+                metric = metrices[i];
+                console.log(metric);
+                if (normalization.indexOf(metric)!=-1){
+                    var maxValue=0;
+                    var minValue=data_in_categories[category][engines[0]][metric];
+                    var total = 0;
+                    for (var j=0;j<engines.length;j++) {
+                        var engine = engines[j];
+                        data = data_in_categories[category][engine][metric];
+                        data = parseFloat(data);
+                        maxValue = Math.max(maxValue,data);
+                        minValue = Math.min(minValue,data);
+                        total = total + data;
+                    }
+                    var average = total / engines.length;
+                    for (var j=0;j<engines.length;j++) {
+                        var engine = engines[j];
+                        data = data_in_categories[category][engine][metric];
+                        var normalizedValue = data/maxValue*100;
+                        //var normalizedValue = (data - minValue)/(maxValue - minValue)*100; //min-max
+                        //var normalizedValue = ((data - average)/(maxValue - minValue)).toFixed(2); //mean
+                        
+                        //var normalizedValue = log(10,data)*100; // use log
+                        if (parseInt(normalizedValue)!=100 && parseInt(normalizedValue)!=0){
+                            normalizedValue = normalizedValue.toFixed(2);
+                        }
+                        data_in_categories[category][engine][metric] = normalizedValue;
+                    }
+                }
+            }
+        }
+    }
+    
+    function log(base,value){
+        return Math.log(value) / Math.log(base)
+    }
+    
+    function drawChartInCategories(data_in_categories, clear){
+        // based on prepared DOM, initialize echarts instance
+        var chartsContainer = document.getElementById("charts");
+        chartsContainer.style.display = "block";
+        if (clear == true){
+            chartsContainer.innerHTML = "";
+        }
+
+        var image_categories = [];
+        for (var category in data_in_categories) {
+            image_categories.push(category);
+        }
+        var engines = getEnabledEngines();
+        var engine_names = [];
+        for (var i=0;i<engines.length;i++){
+            engine_names.push(getDisplayName(engines[i]));
+        }
+        
+        //var engines_data = data_in_categories[category];
+        //for (var engine in engines_data) {
+        //    engines.push(engine);
+        //    engine_names.push(namesDict[engine]);
+        //}
+        
+        
+        
+        console.log(engine_names);
+        
+        
+        
+        var image_categories_group = [];
+        var group_num = parseInt(document.getElementById("group-num").value);
+        if (image_categories.length>=group_num) {
+            var number_per_group = Math.ceil(image_categories.length/group_num)
+            for (var i=0;i<group_num;i++) {
+                var s = [];
+                for (var j=0;j<number_per_group;j++){
+                    var index = i*number_per_group + j;
+                    if (index>=image_categories.length){
+                        break;
+                    }
+                    s.push(image_categories[index])
+                }
+                image_categories_group.push(s);
+            }
+        
+        }else{
+            image_categories_group.push(image_categories);
+        }
+        
+        var categories = getEnabledMetrics();
+        
+        for (var i=0;i<image_categories_group.length;i++){
+            var cats = image_categories_group[i];
+            for (var j=0;j<categories.length;j++){
+                var category = categories[j];
+                var chartClass = category.replace("_","");
+                var chartsContainer = document.getElementById("charts");
+                var chart = document.createElement("div");
+                chart.style.width = "1600px";
+                chart.style.height = "400px";
+                chart.className = chartClass;
+                chartsContainer.append(chart);
+                var myChart = echarts.init(chart, null, {renderer: 'svg'});
+                option = {
+                    tooltip: {
+                        trigger: 'axis',
+                        axisPointer: {
+                            type: 'shadow'
+                        }
+                    },
+                    legend: {
+                        data: engine_names,
+                        show: true
+                    },
+                    toolbox: {
+                        show: true,
+                        orient: 'vertical',
+                        left: 'right',
+                        top: 'center',
+                        feature: {
+                            mark: {show: true},
+                            dataView: {show: true, readOnly: false},
+                            magicType: {show: true, type: ['line', 'bar', 'stack', 'tiled']},
+                            restore: {show: true},
+                            saveAsImage: {show: true}
+                        }
+                    },
+                    xAxis: [
+                        {
+                            type: 'category',
+                            axisTick: {show: false},
+                            data: cats,
+                            axisLabel:{
+                                rotate: 0,
+                                interval: 0
+                            
+                            }
+                        }
+                    ],
+                    yAxis: [
+                        {
+                            type: 'value'
+                        }
+                    ],
+                    series: get_series_in_categories(cats, data_in_categories, engines, category)
+                };
+                // use configuration item and data specified to show chart
+                myChart.setOption(option);
+            }
+        
+        }
+        
+    }
+    
+    function get_series_in_categories(image_categories, data_in_categories, engines, statistics_category) {
+        series = []
+        var labelOption = {
+            show: true,
+            rotate: 90,
+            fontSize: 12,
+            align: 'left',
+            verticalAlign: 'middle',
+            position: 'top',
+            rich: {
+                name: {
+                }
+            }
+        };
+
+        for (var j=0;j<engines.length;j++) {
+            var data = [];
+            var engine = engines[j];
+            for (var k=0;k<image_categories.length;k++) {
+                var category = image_categories[k];
+                var engines_data = data_in_categories[category];
+                var engine_data = engines_data[engine];
+                var value = engine_data[statistics_category];
+                data.push(value);
+            }
+            
+            serie = {
+                        name: getDisplayName(engine), 
+                        type: 'bar',
+                        barGap: 0, 
+                        label: labelOption, 
+                        emphasis: {
+                            focus: 'series'
+                        },
+                        data: data
+                    }
+            series.push(serie);
+        }
+        
+        return series
+    }
+
+    function drawChart(engine_data, clear){
+        // based on prepared DOM, initialize echarts instance
+        var chartsContainer = document.getElementById("charts");
+        chartsContainer.style.display = "block";
+        if (clear == true){
+            chartsContainer.innerHTML = "";
+        }
+        var engines = getEnabledEngines();
+        var engine_names = [];
+        for (var i=0;i<engines.length;i++) {
+            engine_names.push(getDisplayName(engines[i]));
+        }
+        var categories = getEnabledMetrics();
+        for (var i=0;i<categories.length;i++){
+            var category = categories[i];
+            var chartClass = category.replace("_","");
+            var chartsContainer = document.getElementById("charts");
+            var chart = document.createElement("div");
+            chart.style.width = "800px";
+            chart.style.height = "400px";
+            chart.className = chartClass;
+            chartsContainer.append(chart);
+            var myChart = echarts.init(chart, null, {renderer: 'svg'});
+            option = {
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
+                        type: 'shadow'
+                    }
+                },
+                legend: {
+                    data: engine_names
+                },
+                toolbox: {
+                    show: true,
+                    orient: 'vertical',
+                    left: 'right',
+                    top: 'center',
+                    feature: {
+                        mark: {show: true},
+                        dataView: {show: true, readOnly: false},
+                        magicType: {show: true, type: ['line', 'bar', 'stack', 'tiled']},
+                        restore: {show: true},
+                        saveAsImage: {show: true}
+                    }
+                },
+                xAxis: [
+                    {
+                        type: 'category',
+                        axisTick: {show: false},
+                        data: [getDisplayNameOfCategory(category)]
+                    }
+                ],
+                yAxis: [
+                    {
+                        type: 'value'
+                    }
+                ],
+                series: get_series(engines, engine_data, category)
+            };
+            // use configuration item and data specified to show chart
+            myChart.setOption(option);
+        }
+    }
+    
+    function createOverviewTable(data_in_categories) {
+        var container = document.getElementById("overview-table");
+        container.innerHTML="";
+        var table_categories = getEnabledMetrics();
+        for (var i=0;i<table_categories.length;i++) {
+            var h2 = document.createElement("h2");
+            h2.innerText = getDisplayNameOfCategory(table_categories[i]);
+            var table = createTableOfOneCategory(table_categories[i],data_in_categories);
+            container.append(h2);
+            container.append(table);
+        } 
+    }
+    
+    function createTableOfOneCategory(table_category, data_in_categories){
+        var table = document.createElement('table');
+        var thead = document.createElement('thead');
+        var tbody = document.createElement('tbody');
+
+        table.appendChild(thead);
+        table.appendChild(tbody);
+        
+        var headers = ["Engine"];
+        var categories_number = 0;
+         for (var category in data_in_categories) {
+            headers.push(category);
+            categories_number = categories_number + 1;
+        }
+        
+        if (categories_number>1){
+            headers.push("total average");
+        }
+        
+        
+        let row_1 = document.createElement('tr');
+        for (var i =0;i<headers.length;i++){
+            let heading = document.createElement('th');
+            heading.innerHTML = headers[i];
+            row_1.appendChild(heading);
+        }
+        thead.appendChild(row_1);
+        
+        var engines = getEnabledEngines();
+        for (var i=0;i<engines.length;i++) {
+            var engine = engines[i];
+            var row = document.createElement('tr');
+            var data = [];
+            data.push(getDisplayName(engine));
+            total = 0;
+            for (var category in data_in_categories) {
+                var engines_data = data_in_categories[category];
+                var engine_data = engines_data[engine];
+                var value = engine_data[table_category];
+                data.push(value)
+                total = total + parseFloat(value);
+            }
+            
+            if (categories_number>1){
+                data.push((total/categories_number).toFixed(2));
+            }
+            
+            for (var j=0;j<data.length;j++) {
+                var c = document.createElement('td');
+                c.innerHTML = data[j];
+                row.appendChild(c);
+            }
+            
+            tbody.appendChild(row);
+        }
+       return table;
+    }
+    
+    function get_engines_data(data){
+        var barcodesLevel = document.getElementById("barcodes-level").checked;
+        affix = "";
+        if (barcodesLevel==true){
+            affix = "_barcodes";
+        }
+        var engine_data = {};
+        for (var key in data) {
+            var one_engine = data[key];
+            one_engine["accuracy"] = (100*one_engine["accuracy"+affix]).toFixed(2);
+            if (parseInt(one_engine["accuracy"])==100){
+                one_engine["accuracy"]=100;
+            }
+            one_engine["precision"] = (100*one_engine["precision"+affix]).toFixed(2);
+            one_engine["f1score"] = (100*one_engine["f1score"+affix]).toFixed(2);
+            one_engine["time_elapsed"] = one_engine["time_elapsed"].toFixed(2);
+            one_engine["average_time"] = one_engine["average_time"].toFixed(2);
+            engine_data[key] = one_engine;
+        }
+        return engine_data;
+    }
+    
+    function get_series(engines, engine_data, category) {
+        var series = []
+        var showLabel = true;
+        if (engines.length>4) {
+            showLabel = false;
+        }
+        var labelOption = {
+            show: true,
+            position: 'top'
+        };
+        for (var i=0;i<engines.length;i++) {
+            var engine = engines[i];
+            serie = {
+                        name: getDisplayName(engine), 
+                        type: 'bar', 
+                        barGap: 0, 
+                        label: labelOption, 
+                        emphasis: {
+                            focus: 'series'
+                        },
+                        data: [engine_data[engine][category]]
+                    }
+            series.push(serie);
+        }
+        return series
+    }
+    
+    function get_session_id(){
+        sessionId = getUrlParam("id");
+        document.getElementById("sessionId").innerText = sessionId;
+        return sessionId;
+    }
+        
+    function getUrlParam(name) {
+        var reg = new RegExp("(^|&)" + name + "=([^&]*)(&|$)");
+        var r = window.location.search.substr(1).match(reg);
+        if (r != null) return unescape(r[2]); return null;
+    }
+    
+    function getComparisonStatistics(){
+        var session_id = document.getElementById("sessionId").innerText;
+        var url = "session/"+session_id+"/complete-comparison/"
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', url);
+        xhr.onreadystatechange = async function(){
+            if(xhr.readyState === 4){
+                var data = JSON.parse(xhr.responseText);
+                var comparisonTable = document.getElementById("comparisonTable");
+                comparisonTable.innerHTML = "";
+                comparisonTable.append(createComparisonTable(data));
+                var csv_button = document.getElementById("csv");
+                csv_button.style.display = "inline";
+            }
+        }
+        xhr.send();
+    }
+    
+    function createComparisonTable(comparisonData){
+        var session_id = document.getElementById("sessionId").innerText;
+        var table = document.createElement('table');
+        var thead = document.createElement('thead');
+        var tbody = document.createElement('tbody');
+
+        table.appendChild(thead);
+        table.appendChild(tbody);
+        
+        var headers = ["No.","Filename","Detected", "Undetected"];
+        let row_1 = document.createElement('tr');
+        for (var i =0;i<headers.length;i++){
+            let heading = document.createElement('th');
+            heading.innerHTML = headers[i];
+            row_1.appendChild(heading);
+        }
+        thead.appendChild(row_1);
+        var engines = [];
+        for (var key in comparisonData) {
+            if (key!="mergedDetails") {
+                engines.push(key);
+            }
+        }
+        var mergedDetails = comparisonData["mergedDetails"];
+        var index = 0;
+        for (var filename in mergedDetails) {
+            index = index+1;
+            var details = mergedDetails[filename];
+            var row = document.createElement('tr');
+            var data = [];
+            data.push(index);
+            var a = document.createElement("a");
+            a.href = "/reader.html?id="+ session_id +"&filename=" + filename;
+            a.target = "_blank";
+            a.innerText = filename;
+            data.push(a.outerHTML)
+            
+            var detected = details["detected"];
+            var undetected = details["undetected"];
+            var detected_engines = detected.join();
+            var undetected_engines = undetected.join();
+            data.push(detected_engines)
+            data.push(undetected_engines)
+            
+            for (var i=0;i<data.length;i++) {
+                var c = document.createElement('td');
+                c.innerHTML = data[i];
+                row.appendChild(c);
+            }
+            
+            tbody.appendChild(row);
+        }
+        appendFilter(engines);
+
+       return table;
+    }
+    
+    function download_table_as_csv(separator = ',') {
+        // Select rows from table_id
+        var rows = document.getElementsByTagName('tr');
+        // Construct csv
+        var csv = [];
+        for (var i = 0; i < rows.length; i++) {
+            var row = [], cols = rows[i].querySelectorAll('td, th');
+            for (var j = 0; j < cols.length; j++) {
+                // Clean innertext to remove multiple spaces and jumpline (break csv)
+                var data = cols[j].innerText.replace(/(\r\n|\n|\r)/gm, '').replace(/(\s\s)/gm, ' ')
+                // Escape double-quote with double-double-quote (see https://stackoverflow.com/questions/17808511/properly-escape-a-double-quote-in-csv)
+                data = data.replace(/"/g, '""');
+                // Push escaped string
+                row.push('"' + data + '"');
+            }
+            csv.push(row.join(separator));
+        }
+        var csv_string = csv.join('\n');
+        // Download it
+        
+        
+        var filename = document.getElementById("sessionId").innerText + "-" + get_engine()+ '.csv';
+        var link = document.createElement('a');
+        link.style.display = 'none';
+        link.setAttribute('target', '_blank');
+        link.setAttribute('href', 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv_string));
+        link.setAttribute('download', filename);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+    
+    function appendFilter(engines){
+        var filterContainer = document.getElementById("filter");
+        filterContainer.innerHTML = "";
+        var categories = ["Detected","Undetected"];
+        for (var i = 0; i < categories.length; i++) {
+            var category = categories[i];
+            var container = document.createElement("div");
+            container.id = category;
+            container.append(category + ": ")
+            for (var j = 0; j < engines.length; j++) {
+                var engine = engines[j];
+                var lbl = document.createElement("label");
+                var chk = document.createElement("input");
+                chk.type = "checkbox";
+                chk.value = engine;
+                lbl.append(chk);
+                lbl.append(engine);
+                container.append(lbl);
+            }
+            filterContainer.append(container);
+        }
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.innerText = "Filter";
+        btn.onclick = filterResults;
+        filterContainer.append(btn);
+    }
+    
+    function filterResults(){
+        var categories = ["Detected","Undetected"];
+        var detected_conditions = {};
+        var undetected_conditions = {};
+        for (var i = 0; i < categories.length; i++) {
+            var category = categories[i];
+            var container = document.getElementById(category);
+            var chks = container.getElementsByTagName("input");
+            for (var j = 0; j < chks.length; j++) {
+                var chk = chks[j];
+                if (i==0){
+                    detected_conditions[chk.value] = chk.checked;
+                } else
+                {
+                    undetected_conditions[chk.value] = chk.checked;
+                }
+            }
+        }
+        var rows = document.getElementsByTagName("tr");
+        var rowsToHide = [];
+        for (var i = 1; i < rows.length; i++) {
+            var row = rows[i];
+            row.style.display = "";
+            var detected_engines = row.cells[2].textContent.split(",");
+            var undetected_engines = row.cells[3].textContent.split(",");
+            
+            var shouldHide = false;
+            
+            for (let engine in detected_conditions) {
+                if (detected_conditions[engine] == true) {
+                    if (detected_engines.indexOf(engine) == -1){
+                        rowsToHide.push(row);
+                        shouldHide = true;
+                        break
+                    }
+                }
+            }
+            
+            if (shouldHide){
+                continue
+            }
+            for (let engine in undetected_conditions) {
+                if (undetected_conditions[engine] == true) {
+                    if (undetected_engines.indexOf(engine) == -1){
+                        rowsToHide.push(row);
+                        shouldHide = true;
+                    }
+                }
+            }
+
+        }
+
+        for (var i = 0; i < rowsToHide.length; i++) {
+            var row = rowsToHide[i];
+            row.style.display = "none";
+        }
+    }
+    
+    function loadDisplayName(index,targetDict){
+        var lines = document.getElementsByTagName("textarea")[index].value.split("\n");
+        console.log(lines);
+        for (var i=0;i<lines.length;i++) {
+            var line = lines[i];
+            
+            targetDict[line.split(",")[0]]=line.split(",")[1];
+        }
+    }
+    
+    function updateDisplayName(){
+        console.log("Updating display name");
+        loadDisplayName(0,namesDict);
+        loadDisplayName(1,categoryNamesDict);
+        loadEngines();
+        loadCategories();
+    }
+    
+    function getDisplayName(engine){
+        if (engine in namesDict){
+            return namesDict[engine];
+        }else{
+            return engine;
+        }
+    }
+    
+    function getDisplayNameOfCategory(name){
+        if (name in categoryNamesDict){
+            return categoryNamesDict[name];
+        }else{
+            return name;
+        }
+    }
+    
+</script>
+
+
+</body>
+</html>
